@@ -13,11 +13,9 @@ const SYSTEM_INSTRUCTIONS = [
   "Be inclusive of different budgets and mobility needs. Keep answers well organized and actionable."
 ].join(" ");
 
-function readConfig() {
+function readDotEnvFile() {
   const file = path.join(ROOT, ".env.txt");
-  if (!fs.existsSync(file)) {
-    throw new Error("Missing .env.txt configuration file.");
-  }
+  if (!fs.existsSync(file)) return {};
 
   const values = {};
   for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
@@ -30,17 +28,26 @@ function readConfig() {
     values[name] = value;
   }
 
+  return values;
+}
+
+function readConfig() {
+  const values = { ...readDotEnvFile(), ...process.env };
   const endpoint = values.AZURE_OPENAI_ENDPOINT;
   const apiKey = values.AZURE_OPENAI_API_KEY;
   const deployment = values.AZURE_OPENAI_DEPLOYMENT;
+  const apiVersion = values.AZURE_OPENAI_API_VERSION;
+
   if (!endpoint || !apiKey || !deployment) {
-    throw new Error("Set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT in .env.txt.");
+    throw new Error("Set AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, and AZURE_OPENAI_DEPLOYMENT in your environment or .env.txt.");
   }
 
+  const cleanedEndpoint = endpoint.replace(/\/+$/, "").replace(/\/responses$/i, "");
   return {
-    endpoint: endpoint.replace(/\/+$/, "").replace(/\/responses$/i, ""),
+    endpoint: cleanedEndpoint,
     apiKey,
-    deployment
+    deployment,
+    apiVersion
   };
 }
 
@@ -114,7 +121,12 @@ async function handleChat(request, response) {
 
   try {
     const config = readConfig();
-    const upstream = await fetch(`${config.endpoint}/responses`, {
+    const url = new URL(`${config.endpoint}/responses`);
+    if (config.apiVersion) {
+      url.searchParams.set("api-version", config.apiVersion);
+    }
+
+    const upstream = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
